@@ -11,6 +11,14 @@ files:
 asar: true
 # Solo se usan dependencias que ya quedaron empaquetadas por electron-vite.
 npmRebuild: false
+# Endurecimiento del ejecutable: impide usar la app como un Node.js genérico, inyectarle
+# código con variables de entorno o depurador, o cargar código fuera de su paquete.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
 
 mac:
   target:

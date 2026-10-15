@@ -66,6 +66,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 .form { display: flex; flex-direction: column; gap: 18px; }
 .form label { display: flex; flex-direction: column; gap: 6px; font-weight: 500; }
 .form small { color: var(--muted); font-weight: 400; }
+.form small.warning { color: #ffb84d; line-height: 1.45; }
 input[type='text'], input[type='password'] {
   font: inherit;
   padding: 9px 11px;

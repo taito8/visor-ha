@@ -34,6 +34,23 @@ export function normalizeUrl(input: string): string {
   return url.origin
 }
 
+/**
+ * true si la dirección es http:// y apunta fuera de la red local. En ese caso el token viaja
+ * sin cifrar por internet. Las direcciones de Tailscale (100.64.0.0/10 y *.ts.net) ya van
+ * cifradas por el túnel, así que no cuentan.
+ */
+export function isInsecureRemote(origin: string): boolean {
+  const url = new URL(origin)
+  if (url.protocol !== 'http:') return false
+  const host = url.hostname
+  // Un nombre sin puntos (por ejemplo "homeassistant") solo se resuelve dentro de la red local.
+  if (!host.includes('.') || host === 'localhost' || host.endsWith('.local') || host.endsWith('.ts.net') || host.endsWith('.home.arpa')) return false
+  const ip = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/)
+  if (!ip) return true
+  const [a, b] = [Number(ip[1]), Number(ip[2])]
+  return !(a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127))
+}
+
 /** Conecta al websocket de HA. Lanza HaError con un mensaje en español si algo falla. */
 export async function connectHA(haUrl: string, token: string, timeoutMs = 10_000): Promise<Connection> {
   const auth = createLongLivedTokenAuth(haUrl, token.trim())

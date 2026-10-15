@@ -1,6 +1,6 @@
 import { getStates } from 'home-assistant-js-websocket'
 import { useState } from 'preact/hooks'
-import { connectHA, HaError, normalizeUrl } from '../ha/connection'
+import { connectHA, HaError, isInsecureRemote, normalizeUrl } from '../ha/connection'
 
 interface Props {
   initialUrl: string
@@ -18,8 +18,11 @@ export function ConnectionForm({ initialUrl, hasStoredToken, onSaved }: Props) {
   const [result, setResult] = useState<Result>(null)
 
   let profileUrl: string | null = null
+  let insecure = false
   try {
-    profileUrl = url.trim() ? `${normalizeUrl(url)}/profile/security` : null
+    const origin = url.trim() ? normalizeUrl(url) : null
+    profileUrl = origin ? `${origin}/profile/security` : null
+    insecure = origin !== null && isInsecureRemote(origin)
   } catch {
     profileUrl = null
   }
@@ -77,6 +80,12 @@ export function ConnectionForm({ initialUrl, hasStoredToken, onSaved }: Props) {
           onInput={(e) => setUrl(e.currentTarget.value)}
         />
         <small>La misma que usás en el navegador. Puede ser local (http://192.168.x.x:8123) o remota (https://…).</small>
+        {insecure && (
+          <small class="warning">
+            ⚠ Esta dirección no está cifrada (http://) y no es de tu red local: el token viajaría expuesto por internet.
+            Para conectarte desde afuera usá una dirección https:// (por ejemplo, la de Tailscale o Nabu Casa).
+          </small>
+        )}
       </label>
 
       <label>

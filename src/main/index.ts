@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { GRID_LAYOUTS, type AppConfig, type CameraPref, type GridLayout, type ViewPrefs } from '../shared/types'
 import { hasToken, loadConfig, loadToken, saveConfig, saveToken } from './config'
@@ -34,11 +34,6 @@ function createWindow(): void {
     if (view.startFullscreen) mainWindow?.setFullScreen(true)
   })
 
-  // Los links (por ejemplo, "abrir mi perfil en HA") se abren en el navegador del sistema.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault())
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -136,13 +131,25 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/** Solo se atienden pedidos que vienen de la página principal de nuestra propia ventana. */
+function isTrustedSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return !!mainWindow && event.sender === mainWindow.webContents && event.senderFrame === mainWindow.webContents.mainFrame
+}
+
+function handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedSender(event)) throw new Error('Pedido no autorizado')
+    return listener(event, ...args)
+  })
+}
+
 function registerIpc(): void {
-  ipcMain.handle('config:get', (): AppConfig => {
+  handle('config:get', (): AppConfig => {
     const { haUrl, cameras, view } = loadConfig()
     return { haUrl, cameras, view, hasToken: hasToken() }
   })
-  ipcMain.handle('config:getToken', () => loadToken())
-  ipcMain.handle('config:saveConnection', (_event, haUrl: unknown, token: unknown) => {
+  handle('config:getToken', () => loadToken())
+  handle('config:saveConnection', (_event, haUrl: unknown, token: unknown) => {
     if (typeof haUrl !== 'string' || typeof token !== 'string' || !token.trim()) {
       throw new Error('Datos de conexión inválidos')
     }
@@ -154,7 +161,7 @@ function registerIpc(): void {
     saveConfig({ ...previous, haUrl: url.origin, cameras: previous.haUrl === url.origin ? previous.cameras : null })
     setHaAuth(url.origin, token.trim())
   })
-  ipcMain.handle('view:set', (_event, patch: unknown) => {
+  handle('view:set', (_event, patch: unknown) => {
     if (!patch || typeof patch !== 'object') return
     const p = patch as Partial<ViewPrefs>
     const clean: Partial<ViewPrefs> = {}
@@ -163,10 +170,10 @@ function registerIpc(): void {
     if (typeof p.startFullscreen === 'boolean') clean.startFullscreen = p.startFullscreen
     setViewPrefs(clean)
   })
-  ipcMain.on('window:exitFullscreen', () => {
-    if (mainWindow?.isFullScreen()) mainWindow.setFullScreen(false)
+  ipcMain.on('window:exitFullscreen', (event) => {
+    if (isTrustedSender(event) && mainWindow?.isFullScreen()) mainWindow.setFullScreen(false)
   })
-  ipcMain.handle('config:saveCameras', (_event, cameras: unknown) => {
+  handle('config:saveCameras', (_event, cameras: unknown) => {
     if (!Array.isArray(cameras)) throw new Error('Lista de cámaras inválida')
     const clean: CameraPref[] = cameras
       .filter((c): c is CameraPref => !!c && typeof c.entityId === 'string' && typeof c.enabled === 'boolean')
@@ -192,12 +199,25 @@ if (!app.requestSingleInstanceLock()) {
     const config = loadConfig()
     setHaAuth(config.haUrl, config.haUrl ? loadToken() : null)
     installNetworkHooks()
+    // La app nunca necesita cámara, micrófono, ubicación ni notificaciones: se niega todo.
+    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+    session.defaultSession.setPermissionCheckHandler(() => false)
     registerIpc()
     buildMenu()
     createWindow()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+
+  // Ninguna página puede abrir ventanas nuevas ni incrustar <webview>. Los links (por ejemplo,
+  // "abrir mi perfil en HA") se abren en el navegador del sistema.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event) => event.preventDefault())
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
     })
   })
 
