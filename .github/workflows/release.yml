@@ -1,0 +1,77 @@
+# Compila los instaladores de Mac (.dmg) y Windows (.exe) en los servidores de GitHub.
+# Se ejecuta al subir un tag que empiece con "v" (por ejemplo v0.2.0) y publica una Release
+# con los dos instaladores. También se puede lanzar a mano desde la pestaña Actions
+# (en ese caso los instaladores quedan como "artifacts" de la ejecución, sin Release).
+name: Compilar instaladores
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Instalador ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Mac
+            os: macos-latest
+            script: dist:mac
+          - name: Windows
+            os: windows-latest
+            script: dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Usar el número de versión del tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      - run: npm run typecheck
+
+      - run: npm run ${{ matrix.script }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-${{ matrix.name }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publicar Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: instaladores
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Visor HA ${{ github.ref_name }}
+          files: instaladores/*
+          body: |
+            **Descargá el instalador para tu computadora:**
+            - Mac (Intel y Apple Silicon): `Visor-HA-…-mac.dmg`
+            - Windows 10/11: `Visor-HA-…-windows.exe`
+
+            La app no está firmada: la primera vez el sistema avisa que no puede verificarla.
+            En el README están los pasos para abrirla igual en Mac y en Windows.

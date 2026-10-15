@@ -1,0 +1,43 @@
+# Configuración de los instaladores (electron-builder).
+appId: com.visorha.app
+productName: Visor HA
+copyright: Visor HA
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+# Solo se usan dependencias que ya quedaron empaquetadas por electron-vite.
+npmRebuild: false
+
+mac:
+  target:
+    - target: dmg
+      arch: universal   # un solo instalador para Mac Intel y Apple Silicon
+  category: public.app-category.utilities
+  icon: build/icon.png
+  # Sin certificado de Apple: firma "ad-hoc" gratuita. Evita el error "la app está dañada"
+  # en Macs con chip Apple; igual hay que autorizarla la primera vez (ver README).
+  identity: "-"
+  hardenedRuntime: false
+  extendInfo:
+    # Texto del permiso de red local de macOS (necesario para llegar a HA por IP local).
+    NSLocalNetworkUsageDescription: Visor HA necesita acceder a la red local para conectarse a tu Home Assistant y a tus cámaras.
+dmg:
+  artifactName: Visor-HA-${version}-mac.${ext}
+  title: Visor HA ${version}
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.png
+  signAndEditExecutable: true
+nsis:
+  artifactName: Visor-HA-${version}-windows.${ext}
+  oneClick: true          # instalación con un solo clic, sin preguntas
+  perMachine: false       # se instala para el usuario actual, sin pedir permisos de administrador
+  shortcutName: Visor HA
+  createDesktopShortcut: always
