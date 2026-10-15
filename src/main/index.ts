@@ -1,21 +1,24 @@
 import { app, BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
-import type { AppConfig, CameraPref } from '../shared/types'
+import { GRID_LAYOUTS, type AppConfig, type CameraPref, type GridLayout, type ViewPrefs } from '../shared/types'
 import { hasToken, loadConfig, loadToken, saveConfig, saveToken } from './config'
 import { installNetworkHooks, setHaAuth } from './network'
+import { restoredBounds, trackWindowState } from './windowState'
 
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const { maximized, ...bounds } = restoredBounds()
+  const view = loadConfig().view
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...bounds,
     minWidth: 480,
     minHeight: 320,
     title: 'Visor HA',
     backgroundColor: '#0b0b0d',
     autoHideMenuBar: true,
     show: false,
+    alwaysOnTop: view.alwaysOnTop,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -23,8 +26,13 @@ function createWindow(): void {
       sandbox: true
     }
   })
+  if (maximized) mainWindow.maximize()
+  trackWindowState(mainWindow)
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show()
+    if (view.startFullscreen) mainWindow?.setFullScreen(true)
+  })
 
   // Los links (por ejemplo, "abrir mi perfil en HA") se abren en el navegador del sistema.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -42,13 +50,34 @@ function createWindow(): void {
   mainWindow.on('closed', () => (mainWindow = null))
 }
 
+function setViewPrefs(patch: Partial<ViewPrefs>): void {
+  const config = loadConfig()
+  const view = { ...config.view, ...patch }
+  saveConfig({ ...config, view })
+  mainWindow?.setAlwaysOnTop(view.alwaysOnTop)
+  mainWindow?.webContents.send('view:changed', view)
+  buildMenu()
+}
+
+function toggleFullscreen(): void {
+  if (mainWindow) mainWindow.setFullScreen(!mainWindow.isFullScreen())
+}
+
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
+  const view = loadConfig().view
   const openSetup: MenuItemConstructorOptions = {
     label: 'Configuración…',
     accelerator: 'CmdOrCtrl+,',
     click: () => mainWindow?.webContents.send('nav:setup')
   }
+  const layoutItems: MenuItemConstructorOptions[] = GRID_LAYOUTS.map(({ id, label }, i) => ({
+    label,
+    type: 'radio',
+    checked: view.layout === id,
+    accelerator: `CmdOrCtrl+${i}`,
+    click: () => setViewPrefs({ layout: id as GridLayout })
+  }))
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [{
@@ -81,10 +110,26 @@ function buildMenu(): void {
     {
       label: 'Ver',
       submenu: [
-        { role: 'reload', label: 'Recargar' },
-        { role: 'toggleDevTools', label: 'Herramientas de desarrollo' },
+        { label: 'Diseño de la grilla', submenu: layoutItems },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: 'Pantalla completa' }
+        { label: 'Pantalla completa', accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11', click: toggleFullscreen },
+        // En Mac también funciona F11, sin mostrarlo dos veces en el menú.
+        ...(isMac ? [{ label: 'Pantalla completa (F11)', accelerator: 'F11', visible: false, acceleratorWorksWhenHidden: true, click: toggleFullscreen }] : []),
+        {
+          label: 'Siempre visible',
+          type: 'checkbox',
+          checked: view.alwaysOnTop,
+          click: (item) => setViewPrefs({ alwaysOnTop: item.checked })
+        },
+        {
+          label: 'Arrancar en pantalla completa',
+          type: 'checkbox',
+          checked: view.startFullscreen,
+          click: (item) => setViewPrefs({ startFullscreen: item.checked })
+        },
+        { type: 'separator' },
+        { role: 'reload', label: 'Recargar' },
+        { role: 'toggleDevTools', label: 'Herramientas de desarrollo' }
       ]
     }
   ]
@@ -93,8 +138,8 @@ function buildMenu(): void {
 
 function registerIpc(): void {
   ipcMain.handle('config:get', (): AppConfig => {
-    const { haUrl, cameras } = loadConfig()
-    return { haUrl, cameras, hasToken: hasToken() }
+    const { haUrl, cameras, view } = loadConfig()
+    return { haUrl, cameras, view, hasToken: hasToken() }
   })
   ipcMain.handle('config:getToken', () => loadToken())
   ipcMain.handle('config:saveConnection', (_event, haUrl: unknown, token: unknown) => {
@@ -108,6 +153,18 @@ function registerIpc(): void {
     // Si cambia el servidor, la selección de cámaras del anterior ya no sirve.
     saveConfig({ ...previous, haUrl: url.origin, cameras: previous.haUrl === url.origin ? previous.cameras : null })
     setHaAuth(url.origin, token.trim())
+  })
+  ipcMain.handle('view:set', (_event, patch: unknown) => {
+    if (!patch || typeof patch !== 'object') return
+    const p = patch as Partial<ViewPrefs>
+    const clean: Partial<ViewPrefs> = {}
+    if (GRID_LAYOUTS.some((l) => l.id === p.layout)) clean.layout = p.layout
+    if (typeof p.alwaysOnTop === 'boolean') clean.alwaysOnTop = p.alwaysOnTop
+    if (typeof p.startFullscreen === 'boolean') clean.startFullscreen = p.startFullscreen
+    setViewPrefs(clean)
+  })
+  ipcMain.on('window:exitFullscreen', () => {
+    if (mainWindow?.isFullScreen()) mainWindow.setFullScreen(false)
   })
   ipcMain.handle('config:saveCameras', (_event, cameras: unknown) => {
     if (!Array.isArray(cameras)) throw new Error('Lista de cámaras inválida')

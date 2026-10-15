@@ -1,15 +1,27 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { CameraPref } from '../shared/types'
+import type { CameraPref, ViewPrefs } from '../shared/types'
 
 /** Lo que se guarda en config.json (todo menos el token). */
 export interface StoredConfig {
   haUrl: string | null
   cameras: CameraPref[] | null
+  view: ViewPrefs
+  window?: WindowState
 }
 
-const DEFAULTS: StoredConfig = { haUrl: null, cameras: null }
+/** Tamaño y posición de la ventana (en modo normal, no maximizada). */
+export interface WindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  maximized: boolean
+}
+
+const DEFAULT_VIEW: ViewPrefs = { layout: 'auto', alwaysOnTop: false, startFullscreen: false }
+const DEFAULTS: StoredConfig = { haUrl: null, cameras: null, view: DEFAULT_VIEW }
 
 const configPath = () => join(app.getPath('userData'), 'config.json')
 const tokenPath = () => join(app.getPath('userData'), 'token.enc')
@@ -23,7 +35,8 @@ function writeAtomic(path: string, data: string | Buffer): void {
 export function loadConfig(): StoredConfig {
   try {
     if (!existsSync(configPath())) return { ...DEFAULTS }
-    return { ...DEFAULTS, ...JSON.parse(readFileSync(configPath(), 'utf8')) }
+    const stored = JSON.parse(readFileSync(configPath(), 'utf8'))
+    return { ...DEFAULTS, ...stored, view: { ...DEFAULT_VIEW, ...stored.view } }
   } catch (err) {
     console.error('No se pudo leer config.json, se usan valores por defecto', err)
     return { ...DEFAULTS }

@@ -1,4 +1,4 @@
-import type { CameraPref } from '@shared/types'
+import type { CameraPref, ViewPrefs } from '@shared/types'
 import { useEffect, useState } from 'preact/hooks'
 import { useHaConnection, type Credentials } from '../ha/useHaConnection'
 import { Settings } from './Settings'
@@ -8,6 +8,7 @@ export function App() {
   const [loaded, setLoaded] = useState(false)
   const [creds, setCreds] = useState<Credentials | null>(null)
   const [prefs, setPrefs] = useState<CameraPref[] | null>(null)
+  const [view, setView] = useState<ViewPrefs>({ layout: 'auto', alwaysOnTop: false, startFullscreen: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const ha = useHaConnection(creds)
 
@@ -17,11 +18,13 @@ export function App() {
       const token = config.haUrl && config.hasToken ? await window.visor.getToken() : null
       if (config.haUrl && token) setCreds({ haUrl: config.haUrl, token })
       setPrefs(config.cameras)
+      setView(config.view)
       setLoaded(true)
     })()
   }, [])
 
   useEffect(() => window.visor.onOpenSetup(() => setSettingsOpen(true)), [])
+  useEffect(() => window.visor.onViewPrefs(setView), [])
 
   if (!loaded) return null
 
@@ -31,6 +34,7 @@ export function App() {
         creds={creds}
         ha={ha}
         prefs={prefs}
+        view={view}
         onSavedConnection={(next) => {
           if (next.haUrl !== creds?.haUrl) setPrefs(null)
           setCreds(next)
@@ -46,5 +50,5 @@ export function App() {
     )
   }
 
-  return <Viewer ha={ha} haUrl={creds.haUrl} prefs={prefs} onOpenSettings={() => setSettingsOpen(true)} />
+  return <Viewer ha={ha} haUrl={creds.haUrl} prefs={prefs} layout={view.layout} onOpenSettings={() => setSettingsOpen(true)} />
 }
