@@ -1,0 +1,28 @@
+{
+  "name": "visor-ha",
+  "productName": "Visor HA",
+  "version": "0.1.0",
+  "description": "Visor de cámaras de Home Assistant (NVR en vivo)",
+  "main": "out/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/ws": "^8.18.2",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "ws": "^8.22.0"
+  },
+  "dependencies": {
+    "hls.js": "^1.7.3",
+    "home-assistant-js-websocket": "^9.7.1",
+    "preact": "^11.0.1"
+  }
+}
